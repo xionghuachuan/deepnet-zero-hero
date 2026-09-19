@@ -62,6 +62,9 @@ class Value:
         out._op = '+'
         return out
 
+    def __radd__(self, other):
+        return self.__add__(other)
+
     def __mul__(self, other):
         other = other if isinstance(other, Value) else Value(other)
 
@@ -73,6 +76,9 @@ class Value:
         out._backward = backward
         out._op = '*'
         return out
+
+    def __rmul__(self, other):
+        return self.__mul__(other)
 
     def __sub__(self, other):
         other = other if isinstance(other, Value) else Value(other)
@@ -86,6 +92,9 @@ class Value:
         out._backward = backward
         out._op = '-'
         return out
+
+    def __rsub__(self, other):
+        return Value(other) - self
 
     def __truediv__(self, other):
         other = other if isinstance(other, Value) else Value(other)
@@ -107,13 +116,33 @@ class Value:
         out = Value((ex - enx) / (ex + enx))
         out._prev = {self}
         def backward():
-            self.grad += (1- self.tanh().data ** 2) * out.grad
+            self.grad += (1 - out.data ** 2) * out.grad
         out._backward = backward
         out._op = 'tanh'
         return out
 
+    def relu(self):
+        out = Value(0 if self.data < 0 else self.data)
+        out._prev = {self}
+
+        def backward():
+            self.grad += (out.data > 0) * out.grad
+        out._backward = backward
+        out._op = 'relu'
+        return out
+
     def backward(self):
-        self._backward()
-        for node in self._prev:
-            assert isinstance(node, Value)
-            node.backward()
+        # 拓扑排序：保证每个节点只被访问一次，且先于它的所有孩子之前被 backward
+        topo = []
+        visited = set()
+        def build(v):
+            if v not in visited:
+                visited.add(v)
+                for child in v._prev:
+                    build(child)
+                topo.append(v)
+        build(self)
+
+        self.grad = 1.0  # dL/dL = 1，不给根节点置 1 的话整条链路梯度都是 0
+        for v in reversed(topo):
+            v._backward()
